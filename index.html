@@ -6,6 +6,8 @@
     <title>Product Development Management App</title>
     <!-- Tailwind CSS CDN for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN for interactive charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* Custom font for a clean look */
         body {
@@ -29,6 +31,13 @@
             .print\:w-20 { width: 5rem !important; }
             .print\:h-20 { height: 5rem !important; }
             .print\:hidden { display: none !important; }
+
+            /* Ensure canvases are visible and sized correctly for print */
+            #printable-status-chart, #printable-priority-chart {
+                display: block !important;
+                width: 100% !important;
+                height: 250px !important; /* Adjust height for print if needed */
+            }
         }
     </style>
 </head>
@@ -62,9 +71,8 @@
             <!-- Projects by Status Chart -->
             <div class="bg-white p-4 rounded-lg shadow-md flex flex-col items-center">
                 <h3 class="text-xl font-semibold text-gray-800 mb-4">Projects by Status</h3>
-                <div id="status-chart-container" class="w-full h-[300px] flex items-center justify-center text-gray-700">
-                    <!-- Chart will be rendered here or data listed -->
-                    <p>Loading chart data...</p>
+                <div class="w-full h-[300px] flex items-center justify-center">
+                    <canvas id="status-chart"></canvas> <!-- Chart.js will render here -->
                 </div>
                 <button id="clear-status-filter" class="mt-4 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition duration-300 ease-in-out">
                     Clear Status Filter
@@ -74,9 +82,8 @@
             <!-- Projects by Priority Chart -->
             <div class="bg-white p-4 rounded-lg shadow-md flex flex-col items-center">
                 <h3 class="text-xl font-semibold text-gray-800 mb-4">Projects by Priority</h3>
-                <div id="priority-chart-container" class="w-full h-[300px] flex items-center justify-center text-gray-700">
-                    <!-- Chart will be rendered here or data listed -->
-                    <p>Loading chart data...</p>
+                <div class="w-full h-[300px] flex items-center justify-center">
+                    <canvas id="priority-chart"></canvas> <!-- Chart.js will render here -->
                 </div>
                 <button id="clear-priority-filter" class="mt-4 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition duration-300 ease-in-out">
                     Clear Priority Filter
@@ -441,19 +448,19 @@
                 Product Development Report
             </h1>
 
-            <!-- Charts Section (Textual Representation) -->
+            <!-- Charts Section (now with canvas for charts) -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 print:grid-cols-1 print:gap-4">
                 <div class="bg-white p-4 rounded-lg shadow-md flex flex-col items-center print:shadow-none print:border print:border-gray-300">
                     <h3 class="text-xl font-semibold text-gray-800 mb-4 print:text-lg">Projects by Status</h3>
-                    <div id="printable-status-data" class="text-gray-700 text-lg">
-                        <!-- Status data will be injected here -->
+                    <div class="w-full h-[300px] flex items-center justify-center">
+                        <canvas id="printable-status-chart"></canvas> <!-- New canvas for printable status chart -->
                     </div>
                 </div>
 
                 <div class="bg-white p-4 rounded-lg shadow-md flex flex-col items-center print:shadow-none print:border print:border-gray-300">
                     <h3 class="text-xl font-semibold text-gray-800 mb-4 print:text-lg">Projects by Priority</h3>
-                    <div id="printable-priority-data" class="text-gray-700 text-lg">
-                        <!-- Priority data will be injected here -->
+                    <div class="w-full h-[300px] flex items-center justify-center">
+                        <canvas id="printable-priority-chart"></canvas> <!-- New canvas for printable priority chart -->
                     </div>
                 </div>
             </div>
@@ -489,6 +496,13 @@
         let projectToDeleteId = null;
         let passcodeActionType = ''; // 'edit' or 'delete'
         let showInitialPinSetup = false;
+
+        // Chart instances to manage their lifecycle
+        let statusChartInstance = null;
+        let priorityChartInstance = null;
+        // New chart instances for printable report
+        let printableStatusChartInstance = null;
+        let printablePriorityChartInstance = null;
 
         // Filter and Sort states
         let filteredStatus = null;
@@ -684,38 +698,119 @@
             return projectsSubset;
         };
 
-        // Function to render charts (simplified textual representation)
+        // Function to render charts (using Chart.js)
         const renderCharts = () => {
-            const statusChartContainer = getEl('status-chart-container');
-            const priorityChartContainer = getEl('priority-chart-container');
-
             const displayed = getFilteredAndSortedProjects();
             const statusCounts = getProjectStatusCounts(displayed);
             const priorityCounts = getProjectPriorityCounts(displayed);
 
             // Render Status Chart
-            if (statusCounts.length === 0) {
-                statusChartContainer.innerHTML = '<p class="text-center text-gray-600">No status data available.</p>';
-            } else {
-                statusChartContainer.innerHTML = '<ul class="list-disc list-inside text-left w-full px-4">';
-                statusCounts.forEach((data, index) => {
-                    const color = STATUS_COLORS[index % STATUS_COLORS.length];
-                    statusChartContainer.innerHTML += `<li style="color:${color};"><span style="color:black;">${data.name}: <strong>${data.value}</strong> projects</span></li>`;
-                });
-                statusChartContainer.innerHTML += '</ul>';
+            const statusCtx = getEl('status-chart').getContext('2d');
+            if (statusChartInstance) {
+                statusChartInstance.destroy(); // Destroy previous chart instance if it exists
             }
+            statusChartInstance = new Chart(statusCtx, {
+                type: 'pie',
+                data: {
+                    labels: statusCounts.map(data => data.name),
+                    datasets: [{
+                        data: statusCounts.map(data => data.value),
+                        backgroundColor: STATUS_COLORS,
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                font: {
+                                    size: 14
+                                },
+                                color: '#333'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.raw;
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const clickedElementIndex = elements[0].index;
+                            const label = statusChartInstance.data.labels[clickedElementIndex];
+                            filteredStatus = (filteredStatus === label) ? null : label; // Toggle filter
+                            renderProjects();
+                            renderCharts(); // Re-render charts to update based on new filter
+                        }
+                    }
+                }
+            });
 
             // Render Priority Chart
-            if (priorityCounts.length === 0) {
-                priorityChartContainer.innerHTML = '<p class="text-center text-gray-600">No priority data available.</p>';
-            } else {
-                priorityChartContainer.innerHTML = '<ul class="list-disc list-inside text-left w-full px-4">';
-                priorityCounts.forEach((data, index) => {
-                    const color = PRIORITY_COLORS[index % PRIORITY_COLORS.length];
-                    priorityChartContainer.innerHTML += `<li style="color:${color};"><span style="color:black;">${data.name}: <strong>${data.value}</strong> projects</span></li>`;
-                });
-                priorityChartContainer.innerHTML += '</ul>';
+            const priorityCtx = getEl('priority-chart').getContext('2d');
+            if (priorityChartInstance) {
+                priorityChartInstance.destroy(); // Destroy previous chart instance if it exists
             }
+            priorityChartInstance = new Chart(priorityCtx, {
+                type: 'pie',
+                data: {
+                    labels: priorityCounts.map(data => data.name),
+                    datasets: [{
+                        data: priorityCounts.map(data => data.value),
+                        backgroundColor: PRIORITY_COLORS,
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                font: {
+                                    size: 14
+                                },
+                                color: '#333'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.raw;
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const clickedElementIndex = elements[0].index;
+                            const label = priorityChartInstance.data.labels[clickedElementIndex];
+                            filteredPriority = (filteredPriority === label) ? null : label; // Toggle filter
+                            renderProjects();
+                            renderCharts(); // Re-render charts to update based on new filter
+                        }
+                    }
+                }
+            });
         };
 
         // --- Modals Logic ---
@@ -757,6 +852,8 @@
         const cancelProjectModalButton = getEl('cancel-project-modal-button');
         const uploadingPdfMessage = getEl('uploading-pdf-message');
         const uploadingImageMessage = getEl('uploading-image-message');
+        const productSegmentSelect = getEl('product-segment');
+
 
         const barcodeTypes = [
             'EAN-13', 'UPC-A', 'Code 39', 'Code 128', 'QR Code', 'Data Matrix',
@@ -783,6 +880,7 @@
             reminderDurationInput.value = project?.reminderDuration || 7;
             projectRemarksInput.value = project?.remarks || '';
             projectPrioritySelect.value = project?.priority || 'Medium-1';
+            productSegmentSelect.value = project?.productSegment || 'Plastic Storage';
             procurementCostInput.value = project?.procurementCost || '';
             procurementCurrencySelect.value = project?.procurementCurrency || 'USD';
             mrpInput.value = project?.mrp || '';
@@ -842,6 +940,7 @@
             reminderDurationInput.readOnly = readOnly;
             projectRemarksInput.readOnly = readOnly;
             projectPrioritySelect.disabled = readOnly;
+            productSegmentSelect.disabled = readOnly;
             procurementCostInput.readOnly = readOnly;
             procurementCurrencySelect.disabled = readOnly;
             mrpInput.readOnly = readOnly;
@@ -979,29 +1078,95 @@
             const statusCounts = getProjectStatusCounts(displayed);
             const priorityCounts = getProjectPriorityCounts(displayed);
 
-            // Populate printable status data
-            if (statusCounts.length === 0) {
-                printableStatusData.innerHTML = '<p class="text-center text-gray-600">No status data available.</p>';
-            } else {
-                printableStatusData.innerHTML = '<ul class="list-disc list-inside text-left w-full px-4">';
-                statusCounts.forEach((data, index) => {
-                    const color = STATUS_COLORS[index % STATUS_COLORS.length];
-                    printableStatusData.innerHTML += `<li style="color:${color};"><span style="color:black;">${data.name}: <strong>${data.value}</strong> projects</span></li>`;
-                });
-                printableStatusData.innerHTML += '</ul>';
+            // Render Printable Status Chart
+            const printableStatusCtx = getEl('printable-status-chart').getContext('2d');
+            if (printableStatusChartInstance) {
+                printableStatusChartInstance.destroy();
             }
+            printableStatusChartInstance = new Chart(printableStatusCtx, {
+                type: 'pie',
+                data: {
+                    labels: statusCounts.map(data => data.name),
+                    datasets: [{
+                        data: statusCounts.map(data => data.value),
+                        backgroundColor: STATUS_COLORS,
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                font: {
+                                    size: 12 // Smaller font for print
+                                },
+                                color: '#333'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.raw;
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
-            // Populate printable priority data
-            if (priorityCounts.length === 0) {
-                printablePriorityData.innerHTML = '<p class="text-center text-gray-600">No priority data available.</p>';
-            } else {
-                printablePriorityData.innerHTML = '<ul class="list-disc list-inside text-left w-full px-4">';
-                priorityCounts.forEach((data, index) => {
-                    const color = PRIORITY_COLORS[index % PRIORITY_COLORS.length];
-                    printablePriorityData.innerHTML += `<li style="color:${color};"><span style="color:black;">${data.name}: <strong>${data.value}</strong> projects</span></li>`;
-                });
-                printablePriorityData.innerHTML += '</ul>';
+            // Render Printable Priority Chart
+            const printablePriorityCtx = getEl('printable-priority-chart').getContext('2d');
+            if (printablePriorityChartInstance) {
+                printablePriorityChartInstance.destroy();
             }
+            printablePriorityChartInstance = new Chart(printablePriorityCtx, {
+                type: 'pie',
+                data: {
+                    labels: priorityCounts.map(data => data.name),
+                    datasets: [{
+                        data: priorityCounts.map(data => data.value),
+                        backgroundColor: PRIORITY_COLORS,
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                font: {
+                                    size: 12 // Smaller font for print
+                                },
+                                color: '#333'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.raw;
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
             // Populate printable project list
             printableProjectListContainer.innerHTML = '';
@@ -1057,6 +1222,15 @@
 
         const closePrintableReport = () => {
             hideElement(printableReportView);
+            // Destroy printable chart instances when closing the report view
+            if (printableStatusChartInstance) {
+                printableStatusChartInstance.destroy();
+                printableStatusChartInstance = null;
+            }
+            if (printablePriorityChartInstance) {
+                printablePriorityChartInstance.destroy();
+                printablePriorityChartInstance = null;
+            }
         };
 
 
@@ -1103,7 +1277,7 @@
                         currentProjects = []; // Clear projects on sign out
                         renderProjects(); // Re-render to show empty state
                         renderCharts(); // Re-render charts
-                        // Sign in anonymously if no user is authenticated
+                        // Sign in anonymously if you want to keep data for anonymous users
                         try {
                             if (typeof __initial_auth_token !== 'undefined') {
                                 await signInWithCustomToken(auth, __initial_auth_token);
